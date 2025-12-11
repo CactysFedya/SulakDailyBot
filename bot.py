@@ -7,13 +7,13 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # https://your-app-name.onrender.com/webhook
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # --------------------------
-#   Хендлеры
+#     Handlers
 # --------------------------
 @dp.message(commands=["start"])
 async def start_cmd(message: types.Message):
@@ -23,9 +23,8 @@ async def start_cmd(message: types.Message):
 async def ping_cmd(message: types.Message):
     await message.answer("Pong!")
 
-
 # --------------------------
-#   ПЛАНИРОВЩИК
+#   Scheduler
 # --------------------------
 scheduler = AsyncIOScheduler()
 
@@ -37,9 +36,8 @@ async def send_notification():
 
 scheduler.add_job(send_notification, "interval", minutes=10)
 
-
 # --------------------------
-#   WEBHOOK SERVER
+#   Webhook Handler
 # --------------------------
 async def handle_webhook(request: web.Request):
     data = await request.json()
@@ -47,28 +45,33 @@ async def handle_webhook(request: web.Request):
     await dp.feed_update(bot, update)
     return web.Response(text="ok")
 
+# Render health-check
+async def health(request):
+    return web.Response(text="OK")
 
-async def on_startup(app: web.Application):
+async def on_startup(app):
     print("Setting webhook:", WEBHOOK_URL)
     await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_webhook(WEBHOOK_URL)
     scheduler.start()
 
-
-async def on_shutdown(app: web.Application):
+async def on_shutdown(app):
     print("Removing webhook")
     await bot.delete_webhook()
     await bot.session.close()
 
-
 def main():
     app = web.Application()
+
     app.router.add_post("/webhook", handle_webhook)
+    app.router.add_get("/", health)  # 👈 важный маршрут для Render!
 
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
 
-    web.run_app(app, host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+    port = int(os.getenv("PORT"))  # 👈 обязательно без fallback!
+    print(f"Listening on port {port}")
+    web.run_app(app, host="0.0.0.0", port=port)
 
 
 if __name__ == "__main__":
