@@ -10,7 +10,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 # ----------------------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # https://your-app.onrender.com/webhook
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Например: https://your-app.onrender.com/webhook
+PORT = int(os.getenv("PORT", 8080))
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -43,12 +44,15 @@ scheduler.add_job(send_notification, "interval", minutes=10)
 # WEBHOOK HANDLER
 # ----------------------------------------
 async def handle_webhook(request: web.Request):
-    data = await request.json()
-    update = Update.model_validate(data)
-    await dp.feed_update(bot, update)
+    try:
+        data = await request.json()
+        update = Update.model_validate(data)
+        await dp.feed_update(bot, update)
+    except Exception as e:
+        print("Ошибка в webhook:", e)
     return web.Response(text="ok")
 
-# Render health-check route
+# Health-check для Render
 async def health(request):
     return web.Response(text="OK")
 
@@ -56,15 +60,26 @@ async def health(request):
 # STARTUP / SHUTDOWN
 # ----------------------------------------
 async def on_startup(app: web.Application):
-    print("Setting webhook:", WEBHOOK_URL)
-    await bot.delete_webhook(drop_pending_updates=True)
-    await bot.set_webhook(WEBHOOK_URL)
-    scheduler.start()
+    try:
+        print("Setting webhook:", WEBHOOK_URL)
+        # Удаляем старый webhook
+        await bot.delete_webhook(drop_pending_updates=True)
+        # Устанавливаем новый webhook
+        await bot.set_webhook(WEBHOOK_URL)
+        print("Webhook установлен ✅")
+        # Запускаем scheduler
+        scheduler.start()
+        print("Scheduler запущен ✅")
+    except Exception as e:
+        print("Ошибка при старте бота:", e)
 
 async def on_shutdown(app: web.Application):
-    print("Removing webhook")
-    await bot.delete_webhook()
-    await bot.session.close()
+    print("Удаляем webhook и закрываем сессию")
+    try:
+        await bot.delete_webhook()
+        await bot.session.close()
+    except Exception as e:
+        print("Ошибка при shutdown:", e)
 
 # ----------------------------------------
 # MAIN
@@ -75,18 +90,14 @@ def main():
     # Webhook endpoint
     app.router.add_post("/webhook", handle_webhook)
 
-    # Health-check for Render
+    # Health-check для Render
     app.router.add_get("/", health)
 
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
 
-    # Render sets PORT automatically
-    port = int(os.getenv("PORT"))
-    print(f"Listening on port {port}")
-
-    web.run_app(app, host="0.0.0.0", port=port)
-
+    print(f"Слушаем порт {PORT}...")
+    web.run_app(app, host="0.0.0.0", port=PORT)
 
 if __name__ == "__main__":
     main()
